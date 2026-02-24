@@ -154,7 +154,7 @@ def rollout_model_and_populate_sac_buffer(
             wandb.log(
             data=data,
         )
-        return num_added
+        return num_added, per_step_loss_threshold, max_loss_threshold
 
 
 def evaluate(
@@ -402,7 +402,7 @@ def train(
     sac_buffer = maybe_replace_sac_buffer(
         sac_buffer, obs_shape, act_shape, sac_buffer_capacity, cfg.seed
     )
-    num_added = rollout_model_and_populate_sac_buffer(
+    num_added, per_step_loss_threshold, max_loss_threshold = rollout_model_and_populate_sac_buffer(
                                                         model_env,
                                                         replay_buffer,
                                                         agent,
@@ -465,7 +465,7 @@ def train(
                 # Batch all rollouts for the next freq_train_model steps together
                 if len(rollout_tracker) >= trains_per_epoch * cfg.overrides.num_epochs_to_retain_sac_buffer:
                     sac_buffer, rollout_tracker = remove_old_transitions(sac_buffer, rollout_tracker)
-                num_added = rollout_model_and_populate_sac_buffer(
+                num_added, per_step_loss_threshold, max_loss_threshold = rollout_model_and_populate_sac_buffer(
                     model_env,
                     replay_buffer,
                     agent,
@@ -614,6 +614,17 @@ def train(
 
             env_steps += 1
             obs = next_obs
+    # ------------------- Save final state -------------------
+    dynamics_model.save(work_dir)
+    agent.sac_agent.save_checkpoint(
+        ckpt_path=os.path.join(work_dir, "sac_final.pth")
+    )
+    replay_buffer.save(work_dir)
+    np.savez(
+        os.path.join(work_dir, "thresholds.npz"),
+        per_step_loss_threshold=per_step_loss_threshold,
+        max_loss_threshold=max_loss_threshold,
+    )
     if cfg.wandb_log:
         wandb.finish()
     return np.float32(best_eval_reward)
